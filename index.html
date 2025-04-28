@@ -50,45 +50,19 @@
         const API_KEY = 'pRvcuceiwsdG1bIqOi59QzdduSDsK36QYgBLLx6YBkdRYpTpUWT6HEsbnGr1KTd/pjBLQtwQah7cbcz4g0hbnw==';
         const CITY = '세종';
 
-        const PROXY_SERVERS = [
-            'https://api.allorigins.win/raw?url=',
-            'https://corsproxy.io/?',
-            'https://cors-anywhere.herokuapp.com/'
-        ];
-
-        async function fetchWithProxy(url, proxyIndex = 0) {
-            try {
-                const proxyUrl = PROXY_SERVERS[proxyIndex];
-                const response = await fetch(proxyUrl + encodeURIComponent(url), {
-                    headers: {
-                        'Accept': 'application/json',
-                        'Content-Type': 'application/json'
-                    }
-                });
-
-                if (!response.ok) {
-                    throw new Error(`HTTP error! status: ${response.status}`);
-                }
-
-                return await response.json();
-            } catch (error) {
-                console.error(`Proxy ${proxyIndex} failed:`, error);
-                
-                // 다음 프록시 서버로 시도
-                if (proxyIndex < PROXY_SERVERS.length - 1) {
-                    console.log(`Trying next proxy server...`);
-                    return fetchWithProxy(url, proxyIndex + 1);
-                }
-                
-                throw error;
-            }
-        }
-
         async function fetchDustData() {
             try {
-                const apiUrl = `http://apis.data.go.kr/B552584/ArpltnInforInqireSvc/getCtprvnRltmMesureDnsty?serviceKey=${API_KEY}&returnType=json&numOfRows=24&pageNo=1&sidoName=${CITY}&ver=1.0`;
+                // 더 안정적인 CORS 프록시 사용
+                const proxyUrl = 'https://api.allorigins.win/raw?url=';
+                const apiUrl = encodeURIComponent(`http://apis.data.go.kr/B552584/ArpltnInforInqireSvc/getCtprvnRltmMesureDnsty?serviceKey=${API_KEY}&returnType=json&numOfRows=24&pageNo=1&sidoName=${CITY}&ver=1.0`);
                 
-                const data = await fetchWithProxy(apiUrl);
+                const response = await fetch(proxyUrl + apiUrl);
+                
+                if (!response.ok) {
+                    throw new Error('API 호출 실패');
+                }
+                
+                const data = await response.json();
                 console.log('API 응답:', data);
                 
                 if (data.response && data.response.header) {
@@ -115,9 +89,9 @@
                 
                 return null;
             } catch (error) {
-                console.error('모든 프록시 서버 시도 실패:', error);
+                console.error('데이터를 가져오는 중 오류가 발생했습니다:', error);
                 document.getElementById('weatherInfo').textContent = 
-                    '데이터를 가져오는 중 오류가 발생했습니다. 잠시 후 다시 시도해주세요.';
+                    '데이터를 가져오는 중 오류가 발생했습니다.';
                 return null;
             }
         }
@@ -209,9 +183,24 @@
             // 데이터 정렬 (시간순)
             data.sort((a, b) => new Date(a.dataTime) - new Date(b.dataTime));
             
-            const labels = data.map(item => item.dataTime.split(' ')[1]); // 시간만 표시
-            const pm10 = data.map(item => parseInt(item.pm10Value));
-            const pm25 = data.map(item => parseInt(item.pm25Value));
+            // 최신 데이터 시간을 기준으로 5시간 전까지의 데이터 필터링
+            const latestTime = new Date(data[data.length - 1].dataTime);
+            const filteredData = data.filter(item => {
+                const itemTime = new Date(item.dataTime);
+                const timeDiff = (latestTime - itemTime) / (1000 * 60 * 60); // 시간 차이 계산
+                return timeDiff <= 5;
+            });
+            
+            // 시간 레이블 생성 (최신 시간부터 5시간 전까지)
+            const labels = [];
+            for (let i = 5; i >= 0; i--) {
+                const time = new Date(latestTime);
+                time.setHours(time.getHours() - i);
+                labels.push(`${time.getHours()}시`);
+            }
+
+            const pm10 = filteredData.map(item => parseInt(item.pm10Value));
+            const pm25 = filteredData.map(item => parseInt(item.pm25Value));
 
             new Chart(ctx, {
                 type: 'line',
@@ -251,13 +240,18 @@
                             title: {
                                 display: true,
                                 text: '시간'
+                            },
+                            ticks: {
+                                callback: function(value, index, values) {
+                                    return labels[index];
+                                }
                             }
                         }
                     },
                     plugins: {
                         title: {
                             display: true,
-                            text: '세종시 미세먼지 농도 변화'
+                            text: '세종시 미세먼지 농도 변화 (최근 5시간)'
                         }
                     }
                 }
@@ -299,27 +293,6 @@
         setInterval(init, 3600000);
 
         init();
-
-        // 모바일 환경에서의 스타일 조정
-        const style = document.createElement('style');
-        style.textContent = `
-            @media (max-width: 768px) {
-                .container {
-                    padding: 10px;
-                    margin: 10px;
-                }
-                .chart-container {
-                    height: 300px;
-                }
-                .weather-info {
-                    font-size: 1em;
-                }
-                h1 {
-                    font-size: 1.5em;
-                }
-            }
-        `;
-        document.head.appendChild(style);
     </script>
 </body>
 </html>
